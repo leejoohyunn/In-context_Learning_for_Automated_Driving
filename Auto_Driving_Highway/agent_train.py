@@ -52,7 +52,7 @@ class MyHighwayEnv(gym.Env):
             "render_agent": True,
         }
         self.env = gym.make("highway-v0")
-        self.env.configure(self.config)
+        self.env.unwrapped.config.update(self.config)
         self.action_space = self.env.action_space
         self.observation_space = self.env.observation_space
         # self.observation_space = spaces.Box(
@@ -63,6 +63,7 @@ class MyHighwayEnv(gym.Env):
     def step(self, action):
         # Step the wrapped environment and capture all returned values
         obs, reward, done, truncated, info = self.env.step(action)
+        self.last_observation = obs
         custom_reward = self.calculate_custom_reward(action)
         return obs, custom_reward, done, truncated, info
     def set_llm_suggested_action(self, action):
@@ -74,16 +75,35 @@ class MyHighwayEnv(gym.Env):
             return 0
 
     def reset(self, **kwargs):
-        obs = self.env.reset(**kwargs)
-        return obs  # Make sure to return the observation
-
+        result = self.env.reset(**kwargs)
+        if isinstance(result, tuple):
+            obs, info = result
+        else:
+            obs, info = result, {}
+        # 마지막 관측 저장
+        self.last_observation = obs
+        # 두 값 모두 돌려줘야 DummyVecEnv가 정상 작동합
+        return obs, info
+    
     def get_available_actions(self):
         """Get the list of available actions from the underlying Highway environment."""
-        if hasattr(self.env, 'get_available_actions'):
-            return self.env.get_available_actions()
-        else:
-            raise NotImplementedError(
-                "The method get_available_actions is not implemented in the underlying environment.")
+        sce = Scenario(vehicleCount=self.vehicleCount)
+        sce.updateVehicles(self.last_observation, 0)
+
+        toolModels = [
+            getAvailableActions(self.env.unwrapped),
+            getAvailableLanes(sce),
+            getLaneInvolvedCar(sce),
+            isChangeLaneConflictWithCar(sce),
+            isAccelerationConflictWithCar(sce),
+            isKeepSpeedConflictWithCar(sce),
+            isDecelerationSafe(sce),
+    ]
+
+        available = available_action(toolModels)
+        valid_action_ids = [i for i, act in ACTIONS_ALL.items() if available.get(act, False)]
+        return valid_action_ids
+    
 def main():
     env = MyHighwayEnv(vehicleCount=5)
     observation = env.reset()
@@ -120,7 +140,7 @@ def main():
         obs = env.reset()
         done = False
         while not done:
-            sce.updateVehicles(obs, frame)
+            sce.updateVehicles(obs[0], frame)
             # Observation translation
             msg0 = available_action(toolModels)
             msg1 = get_available_lanes(toolModels)
@@ -130,9 +150,9 @@ def main():
 
             lane_car_ids = extract_lane_and_car_ids(lanes_info, msg2)
             safety_assessment = assess_lane_change_safety(toolModels, lane_car_ids)
+            lane_change_safety = assess_lane_change_safety(toolModels, lane_car_ids)
             safety_msg = check_safety_in_current_lane(toolModels, lane_car_ids)
-            formatted_info = format_training_info(msg0, msg1, msg2, lanes_info, lane_car_ids, safety_assessment,
-                                                  safety_msg)
+            formatted_info = format_training_info(msg0, msg1, msg2, lanes_info, lane_car_ids, safety_assessment, lane_change_safety, safety_msg)
 
             action, _ = model.predict(obs)
             action_id = int(action[0])
