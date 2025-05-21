@@ -82,19 +82,33 @@ class getAvailableLanes:
              description="""useful when you want to know the available lanes of the vehicles. like: I want to know the available lanes of the vehicle `ego`. The input to this tool should be a string, representing the id of the vehicle.""")
     def inference(self, vid: str) -> str:
         veh = self.sce.vehicles[vid]
-        currentLaneID = veh.lane_id
+        raw = veh.lane_id
+        currentLaneID = raw if isinstance(raw, str) else f"lane_{raw}"
+        if currentLaneID not in self.sce.lanes:
+        # (디버깅용) 실제 사용 가능한 키를 로그로 남기고
+            print(f"[inference] 잘못된 lane key: {currentLaneID}, available keys: {list(self.sce.lanes.keys())}")
+            return f"Error: lane '{currentLaneID}' not found"
+
         laneIdx = self.sce.lanes[currentLaneID].laneIdx
         if laneIdx == 2:
             leftLane = 'lane_1'
-            return f"""The availabel lane of `{vid}` is `{leftLane}` and `{currentLaneID}`. `{leftLane}` is to the left of the current lane. `{currentLaneID}` is the current lane."""
+            return (
+            f"The available lanes for `{vid}` are `{leftLane}` (left) and `{currentLaneID}` (current). "
+            f"`{leftLane}` is to the left; `{currentLaneID}` is the current lane."
+            )
         elif laneIdx == 0:
             rightLane = 'lane_1'
-            return f"""The availabel lane of `{vid}` is `{currentLaneID}` and `{rightLane}`. `{currentLaneID}` is the current lane. `{rightLane}` is to the right of the current lane."""
+            return (
+            f"The available lanes for `{vid}` are `{currentLaneID}` (current) and `{rightLane}` (right). "
+            f"`{currentLaneID}` is the current lane; `{rightLane}` is to the right."
+            )
         else:
-            leftLane = 'lane_' + str(laneIdx-1)
-            rightLane = 'lane_' + str(laneIdx+1)
-            return f"""The availabel lane of `{vid}` is `{currentLaneID}`, `{rightLane}` and {leftLane}. `{currentLaneID}` is the current lane. `{rightLane}` is to the right of the current lane. `{leftLane}` is to the left of the current lane."""
-
+            leftLane = f"lane_{laneIdx-1}"
+            rightLane = f"lane_{laneIdx+1}"
+            return (
+            f"The available lanes for `{vid}` are `{leftLane}` (left), `{currentLaneID}` (current), and `{rightLane}` (right). "
+            f"`{currentLaneID}` is the current lane; `{rightLane}` is to the right; `{leftLane}` is to the left."
+            )
 
 class getLaneInvolvedCar:
     def __init__(self, sce: Scenario) -> None:
