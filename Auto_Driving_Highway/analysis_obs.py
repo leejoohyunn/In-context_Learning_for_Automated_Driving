@@ -174,9 +174,10 @@ def format_training_info(available_actions_msg, lanes_info_msg, speed_info, all_
 
     # Add information about lanes
     formatted_message += "\nLane Information:\n"
-    formatted_message += f"- Current Lane: {lanes_adjacent_info['current']}\n"
-    formatted_message += f"- Left Adjacent Lane: {lanes_adjacent_info['left'] or 'None'}\n"
-    formatted_message += f"- Right Adjacent Lane: {lanes_adjacent_info['right'] or 'None'}\n"
+    #print("lanes_adjacent_info keys:", lanes_adjacent_info.keys())
+    formatted_message += f"- Current Lane: {lanes_adjacent_info['current_lane']}\n"
+    formatted_message += f"- Left Adjacent Lane: {lanes_adjacent_info.get('left_lane', 'None')}\n"
+    formatted_message += f"- Right Adjacent Lane: {lanes_adjacent_info.get('right_lane', 'None')}\n"
 
     # Add details about vehicles in each lane
     formatted_message += f"{speed_info}\n"
