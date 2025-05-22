@@ -140,10 +140,10 @@ def main():
         "MlpPolicy",
         env,
         verbose=1,
-        exploration_fraction=0.7,  # 탐색 비율 증가
-        exploration_initial_eps=0.8,  # 초기 탐색 확률 
-        exploration_final_eps=0.1,  # 최종 탐색 확률 10%
-        learning_rate=0.001,  # 학습률 증가
+        exploration_fraction=0.8,  # 탐색 비율 증가
+        exploration_initial_eps=1.0,  # 초기 탐색 확률 
+        exploration_final_eps=0.3,  # 최종 탐색 확률 10%
+        learning_rate=0.01,  # 학습률 증가
         buffer_size=50000,
         train_freq=1,
         gradient_steps=1,
