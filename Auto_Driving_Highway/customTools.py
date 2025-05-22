@@ -98,31 +98,60 @@ class getAvailableLanes:
         veh = self.sce.vehicles[vid]
         raw = veh.lane_id
         currentLaneID = raw if isinstance(raw, str) else f"lane_{raw}"
+    
+       # 동적으로 유효한 레인 확인
+        valid_lanes = list(self.sce.lanes.keys())
+        if currentLaneID not in valid_lanes:
+            print(f"[WARNING getAvailableLanes] 잘못된 레인: {currentLaneID}, 유효한 레인: {valid_lanes}")
+            # 가장 가까운 레인으로 수정
+            try:
+                lane_num = int(currentLaneID.split('_')[1]) if '_' in currentLaneID else 1
+                lane_num = max(0, min(lane_num, len(valid_lanes) - 1))
+                currentLaneID = f"lane_{lane_num}"
+                veh.lane_id = currentLaneID  # ⭐ 차량 정보도 업데이트
+                print(f"[WARNING] 차량 {vid}의 레인을 {currentLaneID}로 수정")
+            except:
+                currentLaneID = 'lane_1'
+                veh.lane_id = currentLaneID
+    
+        #동적 레인 인덱스 계산
         if currentLaneID not in self.sce.lanes:
-        # (디버깅용) 실제 사용 가능한 키를 로그로 남기고
-            print(f"[inference] 잘못된 lane key: {currentLaneID}, available keys: {list(self.sce.lanes.keys())}")
             return f"Error: lane '{currentLaneID}' not found"
 
         laneIdx = self.sce.lanes[currentLaneID].laneIdx
-        if laneIdx == 2:
-            leftLane = 'lane_1'
-            return (
-            f"The available lanes for `{vid}` are `{leftLane}` (left) and `{currentLaneID}` (current). "
-            f"`{leftLane}` is to the left; `{currentLaneID}` is the current lane."
-            )
-        elif laneIdx == 0:
-            rightLane = 'lane_1'
-            return (
-            f"The available lanes for `{vid}` are `{currentLaneID}` (current) and `{rightLane}` (right). "
-            f"`{currentLaneID}` is the current lane; `{rightLane}` is to the right."
-            )
-        else:
+        max_lane_idx = max(lane.laneIdx for lane in self.sce.lanes.values())
+        min_lane_idx = min(lane.laneIdx for lane in self.sce.lanes.values())
+    
+        # 동적으로 인접 레인 계산
+        available_lanes = []
+        lane_descriptions = []
+    
+        # 현재 레인
+        available_lanes.append((currentLaneID, "current"))
+    
+        # 왼쪽 레인 (인덱스가 더 작은 레인)
+        if laneIdx > min_lane_idx:
             leftLane = f"lane_{laneIdx-1}"
+            if leftLane in valid_lanes:
+                available_lanes.append((leftLane, "left"))
+                lane_descriptions.append(f"`{leftLane}` is to the left")
+    
+        # 오른쪽 레인 (인덱스가 더 큰 레인)
+        if laneIdx < max_lane_idx:
             rightLane = f"lane_{laneIdx+1}"
-            return (
-            f"The available lanes for `{vid}` are `{leftLane}` (left), `{currentLaneID}` (current), and `{rightLane}` (right). "
-            f"`{currentLaneID}` is the current lane; `{rightLane}` is to the right; `{leftLane}` is to the left."
-            )
+            if rightLane in valid_lanes:
+                available_lanes.append((rightLane, "right"))
+                lane_descriptions.append(f"`{rightLane}` is to the right")
+    
+        # 응답 구성
+        lane_ids = [f"`{lane[0]}` ({lane[1]})" for lane in available_lanes]
+        response = f"The available lanes for `{vid}` are {', '.join(lane_ids)}. "
+        response += f"`{currentLaneID}` is the current lane"
+        if lane_descriptions:
+            response += "; " + "; ".join(lane_descriptions)
+        response += "."
+    
+        return response
 
 class getLaneInvolvedCar:
     def __init__(self, sce: Scenario) -> None:
@@ -131,27 +160,44 @@ class getLaneInvolvedCar:
     @prompts(name='Get Lane Involved Car',
              description="""useful whent want to know the cars may affect your action in the certain lane. Make sure you have use tool `Get Available Lanes` first. The input is a string, representing the id of the specific lane you want to drive on, DONNOT input multiple lane_id once.""")
     def inference(self, laneID: str) -> str:
-        if laneID not in {'lane_0', 'lane_1', 'lane_2', 'lane_3'}:
-            return "Not a valid lane id! Make sure you have use tool `Get Available Lanes` first."
+        valid_lanes = list(self.sce.lanes.keys())  # 실제 존재하는 레인 동적 확인
+        if not valid_lanes:  # 비어있다면 기본값 사용
+            valid_lanes = ['lane_0', 'lane_1', 'lane_2']
+            
+        if laneID not in valid_lanes:
+            print(f"[WARNING] 잘못된 레인 ID: {laneID}, 유효한 레인: {valid_lanes}")
+        # ⭐ 수정된 부분: 가장 가까운 유효한 레인으로 자동 수정
+            try:
+                lane_num = int(laneID.split('_')[1]) if '_' in laneID else 1
+                lane_num = max(0, min(lane_num, len(valid_lanes) - 1))  # 범위 내로 제한
+                laneID = f"lane_{lane_num}"
+                print(f"[WARNING] 자동 수정된 레인 ID: {laneID}")
+            except:
+                laneID = 'lane_1'  # 기본값
+                print(f"[WARNING] 기본 레인으로 설정: {laneID}")
+    
         ego = self.sce.vehicles['ego']
         laneVehicles = []
+        
         for vk, vv in self.sce.vehicles.items():
-            if vk != 'ego':
+            if vk != 'ego' and hasattr(vv, 'presence') and vv.presence:
                 if vv.lane_id == laneID:
                     laneVehicles.append((vv.id, vv.lanePosition))
+                    
         laneVehicles.sort(key=lambda x: x[1])
         leadingCarIdx = -1
+        
         for i in range(len(laneVehicles)):
             vp = laneVehicles[i]
             if vp[1] >= ego.lanePosition:
                 leadingCarIdx = i
                 break
         if leadingCarIdx == -1:
-            try:
+            if not laneVehicles:  # ⭐ 수정된 부분: 명시적 빈 리스트 확인
+                return f'There is no car driving on {laneID}. This lane is safe, you do not need to check for any vehicle for safety! You can drive on this lane safely.'
+            else:
                 rearingCar = laneVehicles[-1][0]
-            except IndexError:
-                return f'There is no car driving on {laneID},  This lane is safe, you donot need to check for any vehicle for safety! you can drive on this lane as fast as you can.'
-            return f"{rearingCar} is driving on {laneID}, and it's driving behind ego car. You need to make sure that your actions do not conflict with each of the vehicles mentioned."
+                return f"{rearingCar} is driving on {laneID}, and it's driving behind ego car. You need to make sure that your actions do not conflict with each of the vehicles mentioned."
         elif leadingCarIdx == 0:
             leadingCar = laneVehicles[0][0]
             distance = round(laneVehicles[0][1] - ego.lanePosition, 2)
