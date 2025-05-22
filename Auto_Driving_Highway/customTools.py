@@ -34,26 +34,40 @@ class getAvailableActions:
     @prompts(name='Get Available Actions',
              description="""Useful before you make decisions, this tool let you know what are your available actions in this situation. The input to this tool should be 'ego'.""")
     def inference(self, input: str) -> str:
-        outputPrefix = 'You can ONLY use one of the following actions: \n '
+        outputPrefix = 'You can ONLY use one of the following actions (exactly as written below, do not substitute with synonyms): \n'
         availableActions = self.env.get_available_actions()
+    
+        # 사용 가능한 액션을 강조하여 표시
+        outputPrefix += "Available actions:\n"
         for action in availableActions:
-            outputPrefix += ACTIONS_ALL[action] + \
-                '--' + ACTIONS_DESCRIPTION[action] + '; \n'
+            action_name = ACTIONS_ALL[action]
+            outputPrefix += f"- \"{action_name}\" -- {ACTIONS_DESCRIPTION[action]}\n"
+    
+        outputPrefix += "\nYour response MUST contain exactly one of these action names in the decision format: \n"
+        outputPrefix += "Final Answer: \n    \"decision\": {\"ACTION_NAME_HERE\"},\n"
+        outputPrefix += "where ACTION_NAME_HERE is replaced with one of: "
+    
+        available_action_names = [f"\"{ACTIONS_ALL[action]}\"" for action in availableActions]
+        outputPrefix += ", ".join(available_action_names) + ".\n\n"
+    
+        # 액션 우선순위 설명
+        outputPrefix += "ACTION PRIORITY GUIDELINES:\n"
         if 1 in availableActions:
-            outputPrefix += 'You should check idle and faster action as FIRST priority. '
-
+            outputPrefix += "• HIGH PRIORITY: Check IDLE and FASTER actions first.\n"
         if 0 in availableActions or 2 in availableActions:
-            outputPrefix += 'For change lane action, CAREFULLY CHECK the safety of vehicles on target lane. '
+            outputPrefix += "• MEDIUM PRIORITY: For LANE_LEFT or LANE_RIGHT actions, carefully check the safety of vehicles on target lane.\n"
         if 3 in availableActions:
-            outputPrefix += 'Consider acceleration action carefully. '
+            outputPrefix += "• MEDIUM PRIORITY: Consider FASTER action when safe.\n"
         if 4 in availableActions:
-            outputPrefix += 'The deceleration action is LAST priority. '
-        outputPrefix += """\nTo check decision safety you should follow steps:
-        Step 1: Get the vehicles in this lane that you may affect. Acceleration, deceleration and idle action affect the Current lane, while left and right lane changes affect the Adjacent lane.
-        Step 2: If there are vehicles, check safety between ego and all vehicles in the action lane ONE by ONE.
-        Step 3: If you find There is no car driving on your "current lane" you can drive faster ! but not too fast to follow the traffic rules.
-        Step 4: If you want to make lane change consider :"Safety Assessment for Lane Changes:" Safe means it is safe to change ,If you want to do IDLE, FASTER, SLOWER, you should consider "Safety Assessment in Current Lane:"
-        """
+            outputPrefix += "• LOW PRIORITY: Use SLOWER action only when necessary.\n"
+    
+        # 안전성 확인 단계
+        outputPrefix += "\nTo check decision safety, follow these steps:\n"
+        outputPrefix += "1. Identify affected vehicles: FASTER, SLOWER, and IDLE actions affect current lane; LANE_LEFT and LANE_RIGHT affect adjacent lanes.\n"
+        outputPrefix += "2. Check safety between ego vehicle and all vehicles in the action lane one by one.\n"
+        outputPrefix += "3. If no car is on your current lane, you can safely choose FASTER (but obey traffic rules).\n"
+        outputPrefix += "4. For lane changes, check 'Safety Assessment for Lane Changes'; for IDLE, FASTER, or SLOWER, check 'Safety Assessment in Current Lane'.\n"
+    
         return outputPrefix
 
 
