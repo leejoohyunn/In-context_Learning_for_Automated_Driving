@@ -2,8 +2,8 @@ from openai import OpenAI
 import pre_prompt
 from logging import lastResort
 
-with open('MY_KEY.txt', 'r', encoding='utf-8-sig') as f:
-    api_key = f.read().strip()
+with open('MY_KEY.txt', 'r') as f:
+    api_key = f.read()
 API_KEY = api_key
 
 
@@ -23,7 +23,6 @@ ACTIONS_DESCRIPTION = {
     4: 'decelerate the vehicle'
 }
 
-## 수정 전
 def send_to_chatgpt(last_action, current_scenario, sce):
     client = OpenAI(api_key=API_KEY)
     print("=========================",type(last_action),"=========================")
