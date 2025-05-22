@@ -64,3 +64,4 @@ class Vehicle:
             'lane position': round(float(self.x), 2),
             'speed': round(float(self.speed), 2),
         }
+    
