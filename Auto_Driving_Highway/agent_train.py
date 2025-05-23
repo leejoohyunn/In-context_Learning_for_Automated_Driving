@@ -6,6 +6,8 @@ from stable_baselines3 import DQN
 from stable_baselines3.common.vec_env import DummyVecEnv  # Import DummyVecEnv
 import random
 import re
+import cv2
+import time
 from scenario import Scenario
 from customTools import (
     getAvailableActions,
@@ -19,6 +21,7 @@ from customTools import (
 )
 from analysis_obs import available_action, get_available_lanes, get_involved_cars, extract_lanes_info, extract_lane_and_car_ids, assess_lane_change_safety, check_safety_in_current_lane, format_training_info
 import ask_llm
+import os
 
 ACTIONS_ALL = {
     0: 'LANE_LEFT',
@@ -29,10 +32,11 @@ ACTIONS_ALL = {
 }
 
 class MyHighwayEnv(gym.Env):
-    def __init__(self, vehicleCount=15):
+    def __init__(self, vehicleCount=15, render_mode = None):
         super(MyHighwayEnv, self).__init__()
         # base setting
         self.vehicleCount = vehicleCount
+        self.render_mode = render_mode
         # environment setting
         self.config = {
             "observation": {
@@ -51,8 +55,12 @@ class MyHighwayEnv(gym.Env):
             "vehicles_density": 2,
             "show_trajectories": True,
             "render_agent": True,
+            "real_time_rendering" : False,
         }
-        self.env = gym.make("highway-v0")
+        
+        if render_mode:
+            self.config["render_mode"] = render_mode
+        self.env = gym.make("highway-v0", render_mode = render_mode)
         self.env.unwrapped.config.update(self.config)
         self.action_space = self.env.action_space
         self.observation_space = self.env.observation_space
@@ -67,6 +75,11 @@ class MyHighwayEnv(gym.Env):
         self.last_observation = obs
         custom_reward = self.calculate_custom_reward(action)
         return obs, custom_reward, done, truncated, info
+    
+    def render(self, mode = 'rgb_array'):
+        """렌더링 함수"""
+        return self.env.render()
+    
     def set_llm_suggested_action(self, action):
         self.llm_suggested_action = action
     
@@ -125,9 +138,27 @@ class MyHighwayEnv(gym.Env):
         available = available_action(toolModels)
         valid_action_ids = [i for i, act in ACTIONS_ALL.items() if available.get(act, False)]
         return valid_action_ids
+def save_video_from_frames(frames, filename, fps=10):
+    """프레임들을 비디오로 저장"""
+    if not frames:
+        print("저장할 프레임이 없습니다.")
+        return
+    
+    height, width, layers = frames[0].shape
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    video = cv2.VideoWriter(filename, fourcc, fps, (width, height))
+    
+    for frame in frames:
+        # RGB를 BGR로 변환 (OpenCV 형식)
+        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        video.write(frame_bgr)
+    
+    video.release()
+    print(f"비디오 저장 완료: {filename}")
     
 def main():
-    env = MyHighwayEnv(vehicleCount=5)
+    os.makedirs("videos", exist_ok=True)
+    env = MyHighwayEnv(vehicleCount=5, render_mode = 'rgb_array')
     observation = env.reset()
     print("Initial Observation:", observation)
     print("Observation space:", env.observation_space)
@@ -164,9 +195,16 @@ def main():
         # isActionSafe()
     ]
     frame = 0
+    episode = 0
+    
+    print("=== 학습 시작 ===")
     for _ in range(10):
         obs = env.reset()
         done = False
+        episode_frames = []
+        step_count = 0
+        
+        record_video = (episode % 5 == 0)
         while not done:
             sce.updateVehicles(obs[0], frame)
             # Observation translation
@@ -198,23 +236,97 @@ def main():
             env.env_method('set_llm_suggested_action', llm_suggested_action)
 
             obs, custom_reward, done, info = env.step(action)
+            
+            if record_video and step_count % 2 == 0:  # 2스텝마다 저장하여 용량 절약
+                frame_img = env.envs[0].render()
+                if frame_img is not None:
+                    episode_frames.append(frame_img)
+            
             print(f"Reward: {custom_reward}\n")
             frame += 1
+            step_count += 1
+            
             if frame % 10 == 0:  # 10 스텝마다 한 번만 학습
                 model.learn(total_timesteps=1, reset_num_timesteps=False)            
                 model.save("highway_dqn_model")
             # 나중에 로드하려면:
             # model = DQN.load("highway_dqn_model", env=env)
+        if record_video and episode_frames:
+            video_filename = f"videos/training_episode_{episode}.mp4"
+            save_video_from_frames(episode_frames, video_filename)
+        
+        print(f"에피소드 {episode} 완료")
+
+    print("=== 학습 완료, 테스트 시작 ===")
 
 
     obs = env.reset()
-    for step in range(1000):
+    test_frames = []
+    
+    for step in range(200):  # 200스텝만 테스트
         action, _states = model.predict(obs, deterministic=True)
         obs, rewards, dones, info = env.step(action)
-
-        print(f"Reward: {rewards}\n")
+        
+        # 테스트 중 모든 프레임 저장
+        frame_img = env.envs[0].render()
+        if frame_img is not None:
+            test_frames.append(frame_img)
+        
+        if dones[0]:
+            break
+        
+        # 시각적 확인을 위한 잠시 대기 (선택사항)
+        time.sleep(0.05)
+    
+    # 테스트 비디오 저장
+    if test_frames:
+        save_video_from_frames(test_frames, "videos/test_run.mp4", fps=20)
+        print("테스트 실행 비디오가 저장되었습니다: videos/test_run.mp4")
 
     env.close()
+
+def visualize_trained_model():
+    """학습된 모델을 실시간으로 시각화"""
+    print("=== 실시간 시각화 모드 ===")
+    
+    # 환경 생성 (실시간 렌더링)
+    env = MyHighwayEnv(vehicleCount=5, render_mode='human')
+    env = DummyVecEnv([lambda: env])
+    
+    # 학습된 모델 로드
+    try:
+        model = DQN.load("highway_dqn_model", env=env)
+        print("학습된 모델을 성공적으로 로드했습니다.")
+    except:
+        print("학습된 모델을 찾을 수 없습니다. 먼저 학습을 진행해주세요.")
+        return
+    
+    # 여러 에피소드 실행
+    for episode in range(5):
+        obs = env.reset()
+        done = False
+        step_count = 0
+        
+        print(f"\n=== 에피소드 {episode + 1} 시작 ===")
+        
+        while not done and step_count < 300:
+            action, _ = model.predict(obs, deterministic=True)
+            obs, rewards, dones, info = env.step(action)
+            
+            action_name = ACTIONS_ALL.get(int(action[0]), "Unknown")
+            print(f"Step {step_count}: Action = {action_name}, Reward = {rewards[0]:.2f}")
+            
+            done = dones[0]
+            step_count += 1
+            
+            # 실시간 시각화를 위한 짧은 대기
+            time.sleep(0.1)
+        
+        print(f"에피소드 {episode + 1} 완료 (총 {step_count}스텝)")
+        time.sleep(2)  # 에피소드 간 잠시 대기
+    
+    env.close()
+
 
 # utils.py
 def extract_decision(response_content):
@@ -260,4 +372,11 @@ def extract_decision(response_content):
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == "--visualize":
+        # 실시간 시각화 모드
+        visualize_trained_model()
+    else:
+        # 일반 학습 모드
+        main()
