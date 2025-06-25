@@ -194,4 +194,4 @@ def format_training_info(available_actions_msg, lanes_info_msg, speed_info, all_
     for action, safety in current_lane_safety.items():
         formatted_message += f"- {action.capitalize().replace('_', ' ')}: {safety}\n"
 
-    return formatted_message
+    return formatted_messagev
